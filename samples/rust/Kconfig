@@ -150,7 +150,7 @@ config SAMPLE_RUST_ECHO_SERVER
 	  If unsure, say N.
 
 config SAMPLE_RUST_GONZIH
-	tristate "Gonzih server module"
+	tristate "Gonzih module"
 	help
 	  This option builds the Rust Gonzih module sample.
 
