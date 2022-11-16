@@ -15,5 +15,5 @@ sudo qemu-system-x86_64 \
   -initrd ramdisk.img \
   -display none \
   -serial stdio \
-  -append "root=/dev/vda console=ttyS0 nokaslr" \
+  -append "root=/dev/vda console=ttyS0 nokaslr noapic" \
   -drive format=raw,file=/home/gnzh/mydev/linsicles/buildroot/output/images/rootfs.ext4,if=virtio

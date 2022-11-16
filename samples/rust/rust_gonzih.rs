@@ -1,9 +1,12 @@
 //! Gonzih module
 
-use kernel::io_buffer::{IoBufferReader, IoBufferWriter};
 use kernel::prelude::*;
-use kernel::sync::{Arc, ArcBorrow, Mutex};
-use kernel::{file, miscdev, mutex_init};
+use kernel::{
+    file,
+    io_buffer::{IoBufferReader, IoBufferWriter},
+    miscdev, mutex_init,
+    sync::{Arc, ArcBorrow, Mutex, UniqueArc},
+};
 
 module! {
     type: Gonzih,
@@ -47,9 +50,10 @@ impl file::Operations for Gonzih {
         let buf = this.contents.lock();
         let n = buf.len();
         pr_info!("About to write {} bytes\n", n);
+        data.write_slice("DATA:".as_bytes())?;
         data.write_slice(&buf[..])?;
         pr_info!("Read {} {} bytes\n", this.number, n);
-        Ok(n)
+        Ok(n + 5)
     }
 
     fn write(
@@ -60,8 +64,9 @@ impl file::Operations for Gonzih {
     ) -> Result<usize> {
         let n = data.len();
         pr_info!("About to write {} bytes\n", n);
-        let mut buf = this.contents.lock();
+        let buf = &mut this.contents.lock();
         data.read_slice(&mut buf[..])?;
+        pr_info!("Received {}\n", buf.len());
         pr_info!("Written {} {} bytes\n", this.number, n);
         Ok(n)
     }
@@ -74,7 +79,7 @@ impl kernel::Module for Gonzih {
         pr_info!("Am I built-in? {}\n", !cfg!(MODULE));
         pr_info!("====================================");
 
-        let mut dev = Pin::from(Arc::try_new(Device {
+        let mut dev = Pin::from(UniqueArc::try_new(Device {
             number: 0,
             contents: unsafe { Mutex::new(Vec::new()) },
         })?);
