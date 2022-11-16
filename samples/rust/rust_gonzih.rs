@@ -2,8 +2,8 @@
 
 use kernel::io_buffer::{IoBufferReader, IoBufferWriter};
 use kernel::prelude::*;
-use kernel::sync::{Arc, ArcBorrow, RwSemaphore};
-use kernel::{file, miscdev};
+use kernel::sync::{Arc, ArcBorrow, Mutex};
+use kernel::{file, miscdev, mutex_init};
 
 module! {
     type: Gonzih,
@@ -15,17 +15,23 @@ module! {
 
 struct Device {
     number: usize,
-    contents: RwSemaphore<Vec<u8>>,
+    contents: Mutex<Vec<u8>>,
 }
 
 struct Gonzih {
     _dev: Pin<Box<miscdev::Registration<Gonzih>>>,
 }
 
+impl Drop for Gonzih {
+    fn drop(&mut self) {
+        pr_info!("Rust gonzih example (exit)\n");
+    }
+}
+
 #[vtable]
 impl file::Operations for Gonzih {
-    type OpenData = Arc<Device>;
     type Data = Arc<Device>;
+    type OpenData = Arc<Device>;
 
     fn open(context: &Self::OpenData, _file: &file::File) -> Result<Self::Data> {
         pr_info!("File for device {} was opened\n", context.number);
@@ -33,28 +39,30 @@ impl file::Operations for Gonzih {
     }
 
     fn read(
-        data: ArcBorrow<'_, Device>,
+        this: ArcBorrow<'_, Device>,
         _file: &file::File,
-        writer: &mut impl IoBufferWriter,
+        data: &mut impl IoBufferWriter,
         _offset: u64,
     ) -> Result<usize> {
-        let buf = data.contents.read();
+        let buf = this.contents.lock();
         let n = buf.len();
-        writer.write_slice(&buf[..])?;
-        pr_info!("File was read {} {} bytes\n", data.number, n);
+        pr_info!("About to write {} bytes\n", n);
+        data.write_slice(&buf[..])?;
+        pr_info!("Read {} {} bytes\n", this.number, n);
         Ok(n)
     }
 
     fn write(
-        data: ArcBorrow<'_, Device>,
+        this: ArcBorrow<'_, Device>,
         _file: &file::File,
-        reader: &mut impl IoBufferReader,
+        data: &mut impl IoBufferReader,
         _offset: u64,
     ) -> Result<usize> {
-        let n = reader.len();
-        let mut buf = data.contents.write();
-        reader.read_slice(&mut buf[..])?;
-        pr_info!("File was written {} {} bytes\n", data.number, n);
+        let n = data.len();
+        pr_info!("About to write {} bytes\n", n);
+        let mut buf = this.contents.lock();
+        data.read_slice(&mut buf[..])?;
+        pr_info!("Written {} {} bytes\n", this.number, n);
         Ok(n)
     }
 }
@@ -66,11 +74,15 @@ impl kernel::Module for Gonzih {
         pr_info!("Am I built-in? {}\n", !cfg!(MODULE));
         pr_info!("====================================");
 
-        let dev = Arc::try_new(Device {
+        let mut dev = Pin::from(Arc::try_new(Device {
             number: 0,
-            contents: unsafe { RwSemaphore::new(Vec::new()) },
-        })?;
-        let reg = miscdev::Registration::<Gonzih>::new_pinned(fmt!("gonzih"), dev)?;
+            contents: unsafe { Mutex::new(Vec::new()) },
+        })?);
+
+        let pinned = unsafe { dev.as_mut().map_unchecked_mut(|s| &mut s.contents) };
+        mutex_init!(pinned, "Device::contents");
+
+        let reg = miscdev::Registration::<Gonzih>::new_pinned(fmt!("gonzih"), dev.into())?;
 
         Ok(Gonzih { _dev: reg })
     }
